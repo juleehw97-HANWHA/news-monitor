@@ -24,9 +24,9 @@ def init_db():
 
 def mock_ai_classify(title):
     categories = ["보도자료", "긍정", "부정", "기획기사"]
-    if "출시" in title or "MOU" in title or "체결" in title:
+    if "출시" in title or "MOU" in title or "체결" in title or "협약" in title:
         return "보도자료"
-    elif "논란" in title or "하락" in title or "의혹" in title:
+    elif "논란" in title or "하락" in title or "의혹" in title or "소송" in title:
         return "부정"
     return random.choice(categories)
 
@@ -35,10 +35,10 @@ def fetch_and_save_news(client_id, client_secret):
     conn = sqlite3.connect("news_monitor.db")
     cursor = conn.cursor()
     
-    keywords = ["한화투자증권", "한화증권", "한화증", "한화證"]
-    search_query = " OR ".join([f'"{k}"' for k in keywords])
+    # 네이버 API 친화적인 일반적인 공백(OR) 기반 검색 쿼리로 조정
+    search_query = "한화투자증권 한화증권 한화증 한화證"
     
-    url = f"https://openapi.naver.com/v1/search/news.json?query={search_query}&display=30"
+    url = f"https://openapi.naver.com/v1/search/news.json?query={search_query}&display=50&sort=date"
     headers = {
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
@@ -48,8 +48,14 @@ def fetch_and_save_news(client_id, client_secret):
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             items = response.json().get("items", [])
+            
+            if not items:
+                st.warning("네이버에서 수집된 최신 기사가 없습니다. 검색 쿼리를 점검하거나 잠시 후 다시 시도해 주십시오.")
+                conn.close()
+                return
+                
             for item in items:
-                title = item["title"].replace("<b>", "").replace("</b>", "").replace("&quot;", '"').replace("&amp;", "&")
+                title = item["title"].replace("<b>", "").replace("</b>", "").replace("&quot;", '"').replace("&amp;", "&").replace("&#39;", "'")
                 link = item["link"]
                 media = "네이버뉴스 수집" 
                 author = "담당자 확인"
@@ -63,7 +69,7 @@ def fetch_and_save_news(client_id, client_secret):
                     """, (pub_date, title, media, author, category, link))
                 except sqlite3.IntegrityError:
                     pass
-            st.success(f"실시간 뉴스 {len(items)}개 기준 수집 및 AI 성향 분류가 완료되었습니다.")
+            st.success(f"실시간 뉴스 수집 및 AI 성향 분류가 완료되었습니다. 데이터 개수를 갱신합니다.")
         else:
             st.error(f"API 호출 실패 (에러 코드: {response.status_code}). ID와 Secret을 다시 확인해 주세요.")
     except Exception as e:
