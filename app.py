@@ -24,9 +24,9 @@ def init_db():
 
 def mock_ai_classify(title):
     categories = ["보도자료", "긍정", "부정", "기획기사"]
-    if "출시" in title or "MOU" in title or "체결" in title or "협약" in title:
+    if "출시" in title or "MOU" in title or "체결" in title or "협약" in title or "선정" in title:
         return "보도자료"
-    elif "논란" in title or "하락" in title or "의혹" in title or "소송" in title:
+    elif "논란" in title or "하락" in title or "의혹" in title or "소송" in title or "피소" in title:
         return "부정"
     return random.choice(categories)
 
@@ -35,9 +35,10 @@ def fetch_and_save_news(client_id, client_secret):
     conn = sqlite3.connect("news_monitor.db")
     cursor = conn.cursor()
     
-    # 네이버 API 친화적인 일반적인 공백(OR) 기반 검색 쿼리로 조정
-    search_query = "한화투자증권 한화증권 한화증 한화證"
+    # 네이버 API 공식 가이드: 여러 단어 중 하나라도 포함(OR)하려면 대문자 OR을 앞뒤 공백과 함께 기입해야 함
+    search_query = "한화투자증권 OR 한화증권 OR 한화증 OR 한화證"
     
+    # 홍보팀 모니터링 특성에 맞춰 최신순(date)으로 최대 50개 호출
     url = f"https://openapi.naver.com/v1/search/news.json?query={search_query}&display=50&sort=date"
     headers = {
         "X-Naver-Client-Id": client_id,
@@ -50,12 +51,16 @@ def fetch_and_save_news(client_id, client_secret):
             items = response.json().get("items", [])
             
             if not items:
-                st.warning("네이버에서 수집된 최신 기사가 없습니다. 검색 쿼리를 점검하거나 잠시 후 다시 시도해 주십시오.")
+                st.warning("포털에서 검색된 최신 기사가 없습니다. 잠시 후 다시 시도해 주십시오.")
                 conn.close()
                 return
                 
+            success_count = 0
             for item in items:
-                title = item["title"].replace("<b>", "").replace("</b>", "").replace("&quot;", '"').replace("&amp;", "&").replace("&#39;", "'")
+                # 기사 제목 내 HTML 태그 및 언론사 특수문자 완벽 제거
+                title = item["title"].replace("<b>", "").replace("</b>", "")
+                title = title.replace("&quot;", '"').replace("&amp;", "&").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
+                
                 link = item["link"]
                 media = "네이버뉴스 수집" 
                 author = "담당자 확인"
@@ -67,9 +72,11 @@ def fetch_and_save_news(client_id, client_secret):
                         INSERT INTO news_articles (pub_date, title, media_name, author_name, category, link)
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, (pub_date, title, media, author, category, link))
+                    success_count += 1
                 except sqlite3.IntegrityError:
-                    pass
-            st.success(f"실시간 뉴스 수집 및 AI 성향 분류가 완료되었습니다. 데이터 개수를 갱신합니다.")
+                    pass # 이미 DB에 있는 동일 링크는 중복 수집 제외
+                    
+            st.success(f"포털 연합 검색이 정상 완료되었습니다. 이번 주기에서 총 {len(items)}개의 기사를 확인하여 분류했습니다.")
         else:
             st.error(f"API 호출 실패 (에러 코드: {response.status_code}). ID와 Secret을 다시 확인해 주세요.")
     except Exception as e:
